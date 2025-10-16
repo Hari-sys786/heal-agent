@@ -1,0 +1,24 @@
+[project]
+name = "selfheal"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Hari-sys786",email = "harimanie@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "langgraph>=0.2.1",
+    "ollama>=0.3.0",
+    "streamlit (>=1.50.0,<2.0.0)",
+    "python-dotenv>=1.0.1",
+    "dotenv (>=0.9.9,<0.10.0)",
+]
+
+[tool.poetry]
+packages = [{include = "selfheal", from = "src"}]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

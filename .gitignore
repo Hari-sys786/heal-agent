@@ -1,0 +1,15 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+env/
+__pycache__
+*.pyc
+# Logs
+src/selfheal/logs/
+
+# Editor files
+.vscode/
+.idea/
