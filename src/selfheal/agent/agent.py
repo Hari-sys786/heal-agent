@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, TypedDict
+from typing import Any, Dict, Iterable, List, Mapping, Optional, TypedDict
 
 from langgraph.graph import END, StateGraph
 
-from selfheal.agent.classifier import ClassifierResult, TicketClassifier, TicketIntent
+from selfheal.agent.classifier import TicketClassifier, TicketIntent
 from selfheal.agent.diagnostics import DiagnosticsConfig, DiagnosticsSuite
 from selfheal.agent.installers import InstallerConfig, PackageInstaller
 from selfheal.agent.ticket_updater import TicketUpdater, TicketUpdaterConfig
@@ -62,7 +62,11 @@ def build_agent(sn_client: ServiceNowClient, config: Optional[AgentConfig] = Non
     cfg = config or AgentConfig()
     logger.debug("Building automation agent with config: %s", cfg)
 
-    classifier = TicketClassifier(model=cfg.ollama_model)
+    diagnostics = DiagnosticsSuite(
+        sn_client,
+        DiagnosticsConfig(dry_run=cfg.dry_run_installs, enabled_routines=cfg.enabled_diagnostics),
+    )
+    classifier = TicketClassifier(model=cfg.ollama_model, supported_services=diagnostics.supported_services())
     installer = PackageInstaller(
         sn_client,
         InstallerConfig(
@@ -70,10 +74,6 @@ def build_agent(sn_client: ServiceNowClient, config: Optional[AgentConfig] = Non
             dry_run=cfg.dry_run_installs,
             sudo_password=cfg.sudo_password,
         ),
-    )
-    diagnostics = DiagnosticsSuite(
-        sn_client,
-        DiagnosticsConfig(dry_run=cfg.dry_run_installs, enabled_routines=cfg.enabled_diagnostics),
     )
     updater = TicketUpdater(
         sn_client,
@@ -129,7 +129,7 @@ def build_agent(sn_client: ServiceNowClient, config: Optional[AgentConfig] = Non
     def installation_node(state: TicketState) -> Dict[str, Any]:
         ticket = state["ticket"]
         classification = state["classification"]
-        classifier_packages = list(classification.get("packages") or [])
+        classifier_packages = _normalize_package_dicts(classification.get("packages"))
         sys_id = ticket["sys_id"]
         full_text = " ".join(
             filter(
@@ -138,17 +138,27 @@ def build_agent(sn_client: ServiceNowClient, config: Optional[AgentConfig] = Non
             )
         )
 
-        candidate_packages = ticket.get("packages") or classifier_packages or installer.extract_packages(full_text)
-        packages = _dedupe_sequence(candidate_packages)
+        ticket_packages = _normalize_package_dicts(ticket.get("packages"))
+        heuristic_names = installer.extract_packages(full_text)
+
+        if ticket_packages:
+            package_requests = _dedupe_packages(ticket_packages)
+        elif classifier_packages:
+            package_requests = _dedupe_packages(classifier_packages)
+        else:
+            package_requests = _dedupe_packages({"name": name} for name in heuristic_names)
+
+        classifier_package_names = [pkg.get("name") for pkg in classifier_packages if pkg.get("name")]
+
         logger.debug(
             "Resolved package list for %s: %s (classifier=%s ticket_packages=%s)",
             sys_id,
-            packages,
-            classifier_packages,
+            package_requests,
+            classifier_package_names,
             ticket.get("packages"),
         )
 
-        if not packages:
+        if not package_requests:
             note = "No packages identified; escalating for manual review."
             updater.add_work_note(sys_id, note)
             logger.warning("No packages found for ticket %s; escalating for review", sys_id)
@@ -163,25 +173,38 @@ def build_agent(sn_client: ServiceNowClient, config: Optional[AgentConfig] = Non
                 }
             }
 
-        logger.info("Starting package installation for %s: %s", sys_id, packages)
-        results = installer.install(sys_id, packages)
+        logger.info("Starting package installation for %s: %s", sys_id, package_requests)
+        results = installer.install(sys_id, package_requests)
         commands = [result.to_dict() for result in results]
-        finalize_note = "Install commands executed; awaiting verification."
 
-        if cfg.auto_resolve and not cfg.dry_run_installs:
-            updater.mark_resolved(sys_id, "Automation installed requested software.")
-            status = "resolved"
+        all_success = bool(results) and all(result.succeeded() for result in results)
+        if all_success:
+            finalize_note = "Install commands completed successfully; awaiting verification."
+            if cfg.auto_resolve and not cfg.dry_run_installs:
+                updater.mark_resolved(sys_id, "Automation installed requested software.")
+                status = "resolved"
+            else:
+                updater.mark_for_review(sys_id, finalize_note)
+                status = "pending_review"
         else:
+            finalize_note = "One or more install commands failed; manual intervention required."
             updater.mark_for_review(sys_id, finalize_note)
-            status = "pending_review"
-        logger.info("Installation outcome for %s: status=%s dry_run=%s", sys_id, status, cfg.dry_run_installs)
+            status = "failed"
+
+        logger.info(
+            "Installation outcome for %s: status=%s dry_run=%s all_success=%s",
+            sys_id,
+            status,
+            cfg.dry_run_installs,
+            all_success,
+        )
 
         return {
             "outcome": {
                 "type": "install",
                 "status": status,
-                "classifier_packages": classifier_packages,
-                "packages": packages,
+                "classifier_packages": classifier_package_names,
+                "packages": package_requests,
                 "commands": commands,
                 "note": finalize_note,
             }
@@ -272,18 +295,84 @@ def build_agent(sn_client: ServiceNowClient, config: Optional[AgentConfig] = Non
     return TicketAutomationAgent(graph=compiled)
 
 
-def _dedupe_sequence(values: Iterable[Any] | None) -> list[Any]:
-    if not values:
+def _normalize_package_dicts(raw: Any) -> list[Dict[str, Any]]:
+    if not raw:
         return []
-    seen = set()
-    result: list[Any] = []
-    for value in values:
-        if value is None:
+    if isinstance(raw, Mapping):
+        normalized = _coerce_package_mapping(raw)
+        return [normalized] if normalized else []
+    if isinstance(raw, Iterable) and not isinstance(raw, (str, bytes)):
+        result: list[Dict[str, Any]] = []
+        for item in raw:
+            if isinstance(item, Mapping):
+                normalized = _coerce_package_mapping(item)
+                if normalized:
+                    result.append(normalized)
+            elif isinstance(item, str):
+                name = item.strip()
+                if name:
+                    result.append({"name": name})
+        return result
+    if isinstance(raw, str):
+        name = raw.strip()
+        return [{"name": name}] if name else []
+    return []
+
+
+def _coerce_package_mapping(value: Mapping[str, Any]) -> Dict[str, Any] | None:
+    name_raw = value.get("name")
+    name = str(name_raw).strip() if name_raw is not None else ""
+    if not name:
+        return None
+    result: Dict[str, Any] = {"name": name}
+    version_raw = value.get("version")
+    if version_raw is not None:
+        version = str(version_raw).strip()
+        if version:
+            result["version"] = version
+    manager_raw = value.get("manager")
+    if manager_raw is not None:
+        manager = str(manager_raw).strip()
+        if manager:
+            result["manager"] = manager
+    command_raw = value.get("install_command")
+    if command_raw is not None:
+        command = str(command_raw).strip()
+        if command:
+            result["install_command"] = command
+    steps_raw = value.get("install_steps")
+    steps: list[str] = []
+    if isinstance(steps_raw, str):
+        candidate = steps_raw.strip()
+        if candidate:
+            steps = [candidate]
+    elif isinstance(steps_raw, Iterable) and not isinstance(steps_raw, (str, bytes)):
+        for item in steps_raw:
+            if isinstance(item, str) and item.strip():
+                steps.append(item.strip())
+    if steps:
+        result["install_steps"] = steps
+    return result
+
+
+def _dedupe_packages(packages: Iterable[Mapping[str, Any]]) -> list[Dict[str, Any]]:
+    seen: set[tuple[Any, ...]] = set()
+    result: list[Dict[str, Any]] = []
+    for pkg in packages:
+        mapping = _coerce_package_mapping(pkg)
+        if not mapping:
             continue
-        if value in seen:
+        key = (
+            mapping.get("name", "").lower(),
+            (mapping.get("version") or "").lower() if mapping.get("version") else None,
+            (mapping.get("install_command") or "") if mapping.get("install_command") else None,
+            (mapping.get("manager") or "").lower() if mapping.get("manager") else None,
+            tuple(mapping.get("install_steps", [])) if mapping.get("install_steps") else None,
+        )
+        if key in seen:
             continue
-        seen.add(value)
-        result.append(value)
+        seen.add(key)
+        result.append(mapping)
     return result
 
 

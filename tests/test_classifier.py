@@ -19,6 +19,7 @@ spec.loader.exec_module(classifier_module)
 
 TicketClassifier = classifier_module.TicketClassifier
 TicketIntent = classifier_module.TicketIntent
+PackageRequest = classifier_module.PackageRequest
 
 
 class SafeJsonTests(unittest.TestCase):
@@ -50,7 +51,7 @@ class IntentOverrideTests(unittest.TestCase):
         intent = self.classifier._override_intent(  # type: ignore[attr-defined]
             TicketIntent.SERVICE,
             combined_text="please install postgresql on the host",
-            packages=["postgresql"],
+            packages=[PackageRequest(name="postgresql")],
             services=[],
             installation_keywords=self.classifier.installation_keywords,
             service_keywords=self.classifier.service_keywords,
@@ -61,7 +62,7 @@ class IntentOverrideTests(unittest.TestCase):
         intent = self.classifier._override_intent(  # type: ignore[attr-defined]
             TicketIntent.SERVICE,
             combined_text="postgres service is down",
-            packages=["postgresql"],
+            packages=[PackageRequest(name="postgresql")],
             services=["postgresql"],
             installation_keywords=self.classifier.installation_keywords,
             service_keywords=self.classifier.service_keywords,
@@ -72,7 +73,7 @@ class IntentOverrideTests(unittest.TestCase):
         intent = self.classifier._override_intent(  # type: ignore[attr-defined]
             TicketIntent.INSTALL,
             combined_text="database connection issue on production",
-            packages=["mysql-connector-python"],
+            packages=[PackageRequest(name="mysql-connector-python")],
             services=[],
             installation_keywords=self.classifier.installation_keywords,
             service_keywords=self.classifier.service_keywords,

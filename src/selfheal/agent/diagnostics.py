@@ -72,6 +72,19 @@ class DiagnosticsSuite:
         self._logger.info("Diagnostic routine '%s' completed for ticket %s", routine.name, sys_id)
         return results
 
+    def supported_services(self) -> tuple[str, ...]:
+        """Return the canonical service names the diagnostics suite understands."""
+        if self.config.enabled_routines:
+            normalized = {name.lower(): name for name in self.config.enabled_routines}
+            matches: list[str] = []
+            for key in self._routine_catalog.keys():
+                original = normalized.get(key.lower())
+                if original:
+                    matches.append(original)
+            if matches:
+                return tuple(matches)
+        return tuple(self._routine_catalog.keys())
+
     def _select_routine(self, ticket_text: str, *, services: Sequence[str] | None = None) -> DiagnosticRoutine:
         text = ticket_text.lower()
         enabled = set(name.lower() for name in self.config.enabled_routines) if self.config.enabled_routines else None
