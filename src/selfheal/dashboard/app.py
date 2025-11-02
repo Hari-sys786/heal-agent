@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Iterable
 
 from dotenv import find_dotenv, load_dotenv
@@ -99,13 +100,29 @@ def _apply_default_field_overrides(config: ServiceNowConfig) -> None:
             config.default_fields[field_key] = value.strip()
 
 
-def run() -> None:
-    """Entrypoint for the Streamlit application."""
+def _load_environment() -> None:
+    """Load environment variables from the nearest .env file."""
     dotenv_path = find_dotenv(filename=".env", usecwd=True)
     if dotenv_path:
         load_dotenv(dotenv_path=dotenv_path, override=False)
+        logger.debug("Loaded environment from %s", dotenv_path)
+        return
+
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / ".env"
+        if candidate.exists():
+            load_dotenv(dotenv_path=candidate, override=False)
+            logger.debug("Loaded environment from %s", candidate)
+            return
+
+
+def run() -> None:
+    """Entrypoint for the Streamlit application."""
+    _load_environment()
     if st is None:
         raise RuntimeError("Streamlit is not installed. Run `pip install streamlit` to launch the dashboard.")
+
+    logger.info("Using OLLAMA_HOST=%s", os.getenv("OLLAMA_HOST") or "(default)")
 
     st.set_page_config(page_title="Self-Heal Automation", layout="wide")
     st.title("Self-Heal Automation Control Center")
