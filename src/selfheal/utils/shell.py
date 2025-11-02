@@ -41,6 +41,7 @@ def run_command(
     check: bool = False,
     timeout: float | None = None,
     dry_run: bool = False,
+    input_text: str | None = None,
 ) -> CommandResult:
     """Execute a command and capture stdout/stderr.
 
@@ -51,6 +52,7 @@ def run_command(
         check: Raise an exception if the command fails.
         timeout: Maximum number of seconds to wait.
         dry_run: If True, do not execute; return a zero exit code placeholder.
+        input_text: Optional stdin payload supplied to the command.
     """
     if isinstance(command, str):
         args: Sequence[str] = tuple(shlex.split(command))
@@ -74,6 +76,7 @@ def run_command(
         check=check,
         cwd=cwd,
         timeout=timeout,
+        input=input_text,
         env=env_dict,
     )
     result = CommandResult(

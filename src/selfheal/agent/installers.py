@@ -16,6 +16,7 @@ class InstallerConfig:
     package_manager: str = "apt-get"
     dry_run: bool = True
     sudo: bool = True
+    sudo_password: str | None = None
 
 
 class PackageInstaller:
@@ -51,11 +52,14 @@ class PackageInstaller:
             self.sn_client.append_work_note(sys_id, "No packages inferred from the request.")
             return results
 
+        use_password = bool(self.config.sudo_password and self.config.sudo and not self.config.dry_run)
+
         for package in packages:
-            cmd = self._build_command(package)
+            cmd = self._build_command(package, use_password=use_password)
             self._logger.info("Installing package %s via command %s", package, cmd)
             self.sn_client.append_work_note(sys_id, f"Installing {package} using `{self._format_command(cmd)}`.")
-            result = run_command(cmd, dry_run=self.config.dry_run)
+            password_input = f"{self.config.sudo_password}\n" if use_password else None
+            result = run_command(cmd, dry_run=self.config.dry_run, input_text=password_input)
             results.append(result)
             note = f"{package} installation {'succeeded' if result.succeeded() else 'failed'}."
             self.sn_client.append_work_note(sys_id, note)
@@ -71,11 +75,13 @@ class PackageInstaller:
                 )
         return results
 
-    def _build_command(self, package: str) -> Sequence[str]:
+    def _build_command(self, package: str, *, use_password: bool) -> Sequence[str]:
         manager = self.config.package_manager
         args: list[str] = []
         if self.config.sudo:
             args.append("sudo")
+            if use_password:
+                args.append("-S")
 
         if manager in {"apt", "apt-get"}:
             args.extend([manager, "install"])

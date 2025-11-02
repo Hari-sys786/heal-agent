@@ -6,7 +6,8 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, Iterable, List, Sequence
-
+from dotenv import load_dotenv
+load_dotenv()
 import ollama
 
 logging.getLogger('selfheal').setLevel(logging.DEBUG)

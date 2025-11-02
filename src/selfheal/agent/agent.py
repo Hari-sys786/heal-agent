@@ -38,6 +38,7 @@ class AgentConfig:
     resolved_state: str = "3"
     review_state: str = "2"
     reassigned_state: str = "2"
+    sudo_password: str | None = None
 
 
 class TicketAutomationAgent:
@@ -64,7 +65,11 @@ def build_agent(sn_client: ServiceNowClient, config: Optional[AgentConfig] = Non
     classifier = TicketClassifier(model=cfg.ollama_model)
     installer = PackageInstaller(
         sn_client,
-        InstallerConfig(package_manager=cfg.package_manager, dry_run=cfg.dry_run_installs),
+        InstallerConfig(
+            package_manager=cfg.package_manager,
+            dry_run=cfg.dry_run_installs,
+            sudo_password=cfg.sudo_password,
+        ),
     )
     diagnostics = DiagnosticsSuite(
         sn_client,

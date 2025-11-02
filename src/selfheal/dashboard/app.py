@@ -73,6 +73,7 @@ def load_agent_config() -> AgentConfig:
         resolved_state=os.getenv("AGENT_RESOLVED_STATE", "3"),
         review_state=os.getenv("AGENT_REVIEW_STATE", "2"),
         reassigned_state=os.getenv("AGENT_REASSIGN_STATE", os.getenv("AGENT_REVIEW_STATE", "2")),
+        sudo_password=os.getenv("AGENT_SUDO_PASSWORD", "").strip() or None,
     )
 
 
