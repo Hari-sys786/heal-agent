@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from dataclasses import dataclass
@@ -9,11 +10,18 @@ from dotenv import find_dotenv, load_dotenv
 
 try:
     import streamlit as st
+    from streamlit.runtime.scriptrunner import add_script_run_ctx
 except ImportError:  # pragma: no cover - dashboard only runs when Streamlit is installed
     st = None  # type: ignore[assignment]
 
+    def add_script_run_ctx(_: threading.Thread) -> None:  # type: ignore[misc]
+        """Fallback no-op when Streamlit runtime context is unavailable."""
+        return None
+
 from selfheal.agent import AgentConfig, TicketAutomationAgent, build_agent
 from selfheal.utils.servicenow_client import ServiceNowClient, ServiceNowConfig
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -185,10 +193,11 @@ def _launch_agent_thread(agent: TicketAutomationAgent, ticket: Dict[str, Any]) -
     def _worker() -> None:
         try:
             agent.invoke(ticket)
-        except Exception as exc:  # pragma: no cover - background thread logging
-            (f"[selfheal] agent invocation failed for {ticket.get('sys_id')}: {exc}")
+        except Exception:  # pragma: no cover - background thread logging
+            logger.exception("Agent invocation failed for %s", ticket.get("sys_id"))
 
     thread = threading.Thread(target=_worker, name=f"agent-{ticket.get('sys_id', 'ticket')}", daemon=True)
+    add_script_run_ctx(thread)
     thread.start()
 
 
