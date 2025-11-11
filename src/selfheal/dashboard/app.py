@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable
 
 from dotenv import find_dotenv, load_dotenv
+
+# Allow running as `python src/selfheal/dashboard/app.py` without installing the package.
+if __package__ in {None, ""}:
+    project_root = Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(project_root))
 
 try:
     import streamlit as st
