@@ -362,8 +362,12 @@ class TicketClassifier:
         if cached:
             return self._merge_package_metadata(package, cached)
 
-        strategy = self._query_install_strategy(package)
-        merged = self._merge_package_metadata(package, strategy) if strategy else package
+        builtin = self._builtin_install_strategy(package)
+        if builtin:
+            merged = self._merge_package_metadata(package, builtin)
+        else:
+            strategy = self._query_install_strategy(package)
+            merged = self._merge_package_metadata(package, strategy) if strategy else package
 
         if merged.manager and merged.manager.lower() == "apt-get" and not merged.install_steps:
             merged = self._merge_package_metadata(merged, PackageRequest(name=merged.name, manager="apt-get", install_steps=self._default_apt_steps(merged)))
@@ -377,6 +381,33 @@ class TicketClassifier:
 
         self._install_strategy_cache[key] = merged
         return merged
+
+    def _builtin_install_strategy(self, package: PackageRequest) -> PackageRequest | None:
+        key = package.name.lower()
+        if key in {"node", "nodejs"}:
+            return self._nodejs_strategy(package)
+        return None
+
+    def _nodejs_strategy(self, package: PackageRequest) -> PackageRequest:
+        version = (package.version or "").strip()
+        major_match = re.match(r"^(\d+)", version) if version else None
+        supported = {"10", "12", "14", "16", "18", "20", "22"}
+        if major_match:
+            major = major_match.group(1)
+            if major not in supported:
+                major = "18"
+        else:
+            major = "18"
+
+        commands = [
+            f"curl -fsSL https://deb.nodesource.com/setup_{major}.x | sudo -E bash -",
+            "sudo apt-get install -y nodejs",
+        ]
+        return PackageRequest(
+            name=package.name,
+            manager="custom",
+            install_steps=commands,
+        )
 
     @staticmethod
     def _merge_package_metadata(base: PackageRequest, override: PackageRequest | None) -> PackageRequest:
