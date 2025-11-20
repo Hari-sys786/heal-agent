@@ -4,7 +4,7 @@ env:
   SERVICENOW_PASSWORD: "tZj7!9NctV+J"
 
   # Agent behaviour
-  LLM_PROVIDER: "ollama"  # Options: ollama | openai | azure_openai | gemini
+  LLM_PROVIDER: "azure_openai"  # Options: ollama | openai | azure_openai | gemini
   LLM_MODEL: "phi3:latest"
   AGENT_DRY_RUN: false
   AGENT_PACKAGE_MANAGER: "apt-get"
@@ -14,18 +14,18 @@ env:
   AGENT_ENABLED_SERVICES: "nginx,postgres"
   AGENT_AI_FLAG_FIELD: "u_ai_done"
   OLLAMA_MODEL: "phi3:latest"
-  AGENT_SUDO_PASSWORD: "kali"
-  OLLAMA_HOST: "http://192.168.3.127:11434"
+  AGENT_SUDO_PASSWORD: "linuxadmin@123"
+  # OLLAMA_HOST: "http://192.168.3.127:11434"
 
   # OpenAI (when LLM_PROVIDER=openai)
   OPENAI_API_KEY: ""
   OPENAI_MODEL: "gpt-4o"
 
   # Azure OpenAI (when LLM_PROVIDER=azure_openai)
-  AZURE_OPENAI_ENDPOINT: ""
+  AZURE_OPENAI_ENDPOINT: "https://itismfg.openai.azure.com/"
   AZURE_OPENAI_API_KEY: ""
-  AZURE_OPENAI_DEPLOYMENT: ""
-  AZURE_OPENAI_API_VERSION: "2024-08-01-preview"
+  AZURE_OPENAI_DEPLOYMENT: "gpt-5"
+  AZURE_OPENAI_API_VERSION: "2025-01-01-preview"
 
   # Gemini (when LLM_PROVIDER=gemini)
   GEMINI_API_KEY: ""
