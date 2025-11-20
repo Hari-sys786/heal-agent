@@ -72,6 +72,7 @@ def load_agent_config(settings: Mapping[str, Any]) -> AgentConfig:
     return AgentConfig(
         llm_provider=llm_provider,
         llm_model=llm_model,
+        ollama_host=_get_str(settings, "OLLAMA_HOST"),
         azure_openai_endpoint=_get_str(settings, "AZURE_OPENAI_ENDPOINT"),
         azure_openai_api_key=_get_str(settings, "AZURE_OPENAI_API_KEY"),
         azure_openai_api_version=_get_str(settings, "AZURE_OPENAI_API_VERSION"),
@@ -151,7 +152,7 @@ def run() -> None:
     if agent_cfg.llm_provider == "ollama":
         logger.info(
             "Using OLLAMA_HOST=%s model=%s",
-            (_get_str(settings, "OLLAMA_HOST") or "(default)"),
+            (agent_cfg.ollama_host or "(default)"),
             agent_cfg.llm_model,
         )
     else:

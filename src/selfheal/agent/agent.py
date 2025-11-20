@@ -31,6 +31,7 @@ class AgentConfig:
 
     llm_provider: str = "ollama"
     llm_model: str = "phi3:latest"
+    ollama_host: str | None = None
     azure_openai_endpoint: str | None = None
     azure_openai_api_key: str | None = None
     azure_openai_api_version: str | None = None

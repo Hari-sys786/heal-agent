@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Mapping, Protocol, Sequence
 
 import ollama
@@ -65,17 +66,32 @@ def _build_google_model(config: Dict[str, Any]) -> Any:
 
 def _build_ollama_model(config: Dict[str, Any]) -> Any:
     model_name = config.get("model", "phi3:latest")
+    host = config.get("host") or config.get("endpoint")
+    client: Any
+    if host and hasattr(ollama, "Client"):
+        try:
+            client = ollama.Client(host=host)
+        except Exception:
+            client = ollama
+    else:
+        client = ollama
 
     class _OllamaWrapper:
+        def __init__(self, backend: Any) -> None:
+            self._backend = backend
+
         def invoke(self, messages: Any) -> str:
             if isinstance(messages, str):
                 payload = [{"role": "user", "content": messages}]
             else:
                 payload = [{"role": m["role"], "content": m["content"]} for m in messages]
-            resp = ollama.chat(model=model_name, messages=payload)
+            chat_fn = getattr(self._backend, "chat", None)
+            if chat_fn is None:
+                chat_fn = ollama.chat
+            resp = chat_fn(model=model_name, messages=payload)
             return resp.get("message", {}).get("content", "")
 
-    return _OllamaWrapper()
+    return _OllamaWrapper(client)
 
 
 def build_chat_model(config: Dict[str, Any]) -> Any:
@@ -151,6 +167,9 @@ def build_llm_client_for_agent(cfg: Any) -> ChatModel:
         opts["api_key"] = getattr(cfg, "gemini_api_key", None)
     else:  # ollama
         opts["model"] = model or "phi3:latest"
+        host = getattr(cfg, "ollama_host", None) or os.getenv("OLLAMA_HOST")
+        if host:
+            opts["host"] = host
 
     lc_model = build_chat_model(config)
     return LangChainChatAdapter(lc_model)
