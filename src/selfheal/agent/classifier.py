@@ -7,11 +7,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
-from dotenv import load_dotenv
-
-from selfheal.agent.llm_selector import ChatModel, build_llm_client_from_env
-
-load_dotenv()
+from selfheal.agent.llm_selector import ChatModel, build_default_llm_client
 
 logging.getLogger('selfheal').setLevel(logging.DEBUG)
 
@@ -99,7 +95,7 @@ class TicketClassifier:
         self._logger = logging.getLogger(__name__)
         self._latest_version_cache: Dict[str, str] = {}
         self._install_strategy_cache: Dict[str, PackageRequest] = {}
-        self._llm: ChatModel = llm_client or build_llm_client_from_env()
+        self._llm: ChatModel = llm_client or build_default_llm_client(model)
 
     def classify(self, short_description: str, description: str) -> ClassifierResult:
         """Send a JSON-constrained prompt to the LLM and parse the response."""

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import Any, Dict, Mapping, Protocol, Sequence
 
 import ollama
@@ -17,9 +16,6 @@ class ChatModel(Protocol):
 
 def _build_openai_model(config: Dict[str, Any]) -> Any:
     settings = config.copy()
-    openai_key = settings.get("api_key") or settings.get("openai_api_key")
-    if openai_key:
-        os.environ.setdefault("OPENAI_API_KEY", str(openai_key))
     return ChatOpenAI(
         model_name=settings.get("model", settings.get("model_name", "gpt-4o")),
         temperature=settings.get("temperature", 0.3),
@@ -38,13 +34,6 @@ def _build_azure_openai_model(config: Dict[str, Any]) -> Any:
     endpoint = settings.get("endpoint") or settings.get("azure_endpoint")
     api_version = settings.get("api_version") or settings.get("azure_api_version")
 
-    if azure_key:
-        os.environ.setdefault("AZURE_OPENAI_API_KEY", str(azure_key))
-    if endpoint:
-        os.environ.setdefault("AZURE_OPENAI_ENDPOINT", str(endpoint))
-    if api_version:
-        os.environ.setdefault("AZURE_OPENAI_API_VERSION", str(api_version))
-
     return AzureChatOpenAI(
         deployment_name=deployment_name,
         api_key=azure_key,
@@ -61,16 +50,16 @@ def _build_google_model(config: Dict[str, Any]) -> Any:
     temperature = settings.get("temperature", 0.3)
     max_output_tokens = settings.get("max_output_tokens")
     google_key = settings.get("api_key") or settings.get("google_api_key")
-    if google_key:
-        os.environ.setdefault("GOOGLE_API_KEY", str(google_key))
     cred_path = settings.get("credentials_file") or settings.get("google_credentials_file")
-    if cred_path:
-        os.environ.setdefault("GOOGLE_APPLICATION_CREDENTIALS", str(cred_path))
 
     return ChatGoogleGenerativeAI(
         model=model_name,
         temperature=temperature,
         max_output_tokens=max_output_tokens,
+        api_key=google_key,
+        google_api_key=google_key,
+        credentials_file=cred_path,
+        google_credentials_file=cred_path,
     )
 
 
@@ -136,30 +125,10 @@ def build_chat_model(config: Dict[str, Any]) -> Any:
     raise ValueError(f"Unsupported LLM provider '{provider}'.")
 
 
-def build_llm_client_from_env() -> ChatModel:
-    """Convenience selector driven by environment variables."""
-    provider = _normalise_provider(os.getenv("LLM_PROVIDER", "ollama"))
-    config: Dict[str, Any] = {"llm": {"provider": provider, "options": {}}}
-    opts = config["llm"]["options"]
-
-    # Shared model selection
-    model = os.getenv("LLM_MODEL")
-    if provider == "azure_openai":
-        opts["deployment_name"] = os.getenv("AZURE_OPENAI_DEPLOYMENT") or os.getenv("AZURE_OPENAI_MODEL") or model
-        opts["api_key"] = os.getenv("AZURE_OPENAI_API_KEY")
-        opts["endpoint"] = os.getenv("AZURE_OPENAI_ENDPOINT")
-        opts["api_version"] = os.getenv("AZURE_OPENAI_API_VERSION")
-    elif provider == "openai":
-        opts["model"] = model or os.getenv("OPENAI_MODEL") or "gpt-4o"
-        opts["api_key"] = os.getenv("OPENAI_API_KEY")
-    elif provider == "gemini":
-        opts["model"] = model or os.getenv("GEMINI_MODEL") or "gemini-1.5-flash"
-        opts["api_key"] = os.getenv("GEMINI_API_KEY")
-    else:  # ollama default
-        opts["model"] = model or os.getenv("OLLAMA_MODEL", "phi3:latest")
-
-    lc_model = build_chat_model(config)
-    return LangChainChatAdapter(lc_model)
+def build_default_llm_client(model: str = "phi3:latest") -> ChatModel:
+    """Default Ollama-backed client when none is supplied."""
+    cfg: Dict[str, Any] = {"llm": {"provider": "ollama", "options": {"model": model}}}
+    return LangChainChatAdapter(build_chat_model(cfg))
 
 
 def build_llm_client_for_agent(cfg: Any) -> ChatModel:
@@ -234,6 +203,6 @@ def _flatten_messages(messages: Sequence[Mapping[str, str]]) -> str:
 __all__ = [
     "ChatModel",
     "build_chat_model",
-    "build_llm_client_from_env",
+    "build_default_llm_client",
     "build_llm_client_for_agent",
 ]

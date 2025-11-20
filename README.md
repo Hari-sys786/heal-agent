@@ -16,7 +16,7 @@ This repository contains a Streamlit dashboard and LangGraph-powered automation 
    pip install -e .
    pip install streamlit
    ```
-2. Copy `.env.example` to `.env` and populate ServiceNow credentials plus agent settings (LLM provider/model and keys). Supply either `SERVICENOW_USERNAME`/`SERVICENOW_PASSWORD` or `SERVICENOW_TOKEN`. The dashboard automatically loads this file via `python-dotenv`.
+2. Create `config.yml` (see `.env` for the expected keys) and populate ServiceNow credentials plus agent settings (LLM provider/model and keys). Supply either `SERVICENOW_USERNAME`/`SERVICENOW_PASSWORD` or `SERVICENOW_TOKEN`. The dashboard automatically loads this file on startup.
    - Optional: set `AGENT_SUDO_PASSWORD` if the automation must supply a sudo password for package installs. The password is piped to `sudo -S`; consider configuring passwordless sudo instead for production use.
    - Package installs now respect explicit versions (e.g. `postgresql=15.2`) and may execute model-provided shell commands or ordered step lists for software that is not available via your configured package manager.
 3. Launch the dashboard:

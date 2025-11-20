@@ -6,9 +6,9 @@ import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, Mapping
 
-from dotenv import find_dotenv, load_dotenv
+import yaml
 
 # Allow running as `python src/selfheal/dashboard/app.py` without installing the package.
 if __package__ in {None, ""}:
@@ -39,67 +39,67 @@ class DashboardConfig:
     ticket_limit: int = 20
 
 
-def load_servicenow_config() -> ServiceNowConfig:
+def load_servicenow_config(settings: Mapping[str, Any]) -> ServiceNowConfig:
     """Load ServiceNow credentials from environment variables."""
-    assignment_group = os.getenv("SERVICENOW_ASSIGNMENT_GROUP", "").strip() or None
-    token = os.getenv("SERVICENOW_TOKEN", "").strip() or None
+    assignment_group = _get_str(settings, "SERVICENOW_ASSIGNMENT_GROUP", "").strip() or None
+    token = _get_str(settings, "SERVICENOW_TOKEN", "").strip() or None
     username: str | None
     password: str | None
     if token:
         username = None
         password = None
     else:
-        username = _require_env("SERVICENOW_USERNAME")
-        password = _require_env("SERVICENOW_PASSWORD")
+        username = _require_value(settings, "SERVICENOW_USERNAME")
+        password = _require_value(settings, "SERVICENOW_PASSWORD")
     config = ServiceNowConfig(
-        instance_url=_require_env("SERVICENOW_INSTANCE_URL"),
+        instance_url=_require_value(settings, "SERVICENOW_INSTANCE_URL"),
         username=username,
         password=password,
         token=token,
-        table=os.getenv("SERVICENOW_TABLE", "u_heal_agent"),
+        table=_get_str(settings, "SERVICENOW_TABLE", "u_heal_agent"),
         assignment_group=assignment_group,
-        include_display_values=_env_bool("SERVICENOW_DISPLAY_VALUES", default=False),
+        include_display_values=_get_bool(settings, "SERVICENOW_DISPLAY_VALUES", default=False),
     )
-    _apply_default_field_overrides(config)
+    _apply_default_field_overrides(config, settings)
     return config
 
 
-def load_agent_config() -> AgentConfig:
+def load_agent_config(settings: Mapping[str, Any]) -> AgentConfig:
     """Build agent configuration from environment variables."""
-    enabled_services = _split_csv(os.getenv("AGENT_ENABLED_SERVICES", ""))
-    llm_provider, llm_model = _resolve_llm_settings()
+    enabled_services = _split_csv(_get_str(settings, "AGENT_ENABLED_SERVICES", ""))
+    llm_provider, llm_model = _resolve_llm_settings(settings)
 
     return AgentConfig(
         llm_provider=llm_provider,
         llm_model=llm_model,
-        azure_openai_endpoint=_optional_env("AZURE_OPENAI_ENDPOINT"),
-        azure_openai_api_key=_optional_env("AZURE_OPENAI_API_KEY"),
-        azure_openai_api_version=_optional_env("AZURE_OPENAI_API_VERSION"),
-        azure_openai_deployment=_optional_env("AZURE_OPENAI_DEPLOYMENT") if llm_provider == "azure_openai" else None,
-        openai_api_key=_optional_env("OPENAI_API_KEY"),
-        gemini_api_key=_optional_env("GEMINI_API_KEY"),
-        dry_run_installs=_env_bool("AGENT_DRY_RUN", default=True),
-        package_manager=os.getenv("AGENT_PACKAGE_MANAGER", "apt-get"),
-        auto_resolve=_env_bool("AGENT_AUTO_RESOLVE", default=False),
-        review_assignment_group=os.getenv("AGENT_REVIEW_GROUP", "Auto-Bot Review"),
-        reassignment_group=os.getenv("AGENT_REASSIGN_GROUP", "Service Desk"),
+        azure_openai_endpoint=_get_str(settings, "AZURE_OPENAI_ENDPOINT"),
+        azure_openai_api_key=_get_str(settings, "AZURE_OPENAI_API_KEY"),
+        azure_openai_api_version=_get_str(settings, "AZURE_OPENAI_API_VERSION"),
+        azure_openai_deployment=_get_str(settings, "AZURE_OPENAI_DEPLOYMENT") if llm_provider == "azure_openai" else None,
+        openai_api_key=_get_str(settings, "OPENAI_API_KEY"),
+        gemini_api_key=_get_str(settings, "GEMINI_API_KEY"),
+        dry_run_installs=_get_bool(settings, "AGENT_DRY_RUN", default=True),
+        package_manager=_get_str(settings, "AGENT_PACKAGE_MANAGER", "apt-get"),
+        auto_resolve=_get_bool(settings, "AGENT_AUTO_RESOLVE", default=False),
+        review_assignment_group=_get_str(settings, "AGENT_REVIEW_GROUP", "Auto-Bot Review"),
+        reassignment_group=_get_str(settings, "AGENT_REASSIGN_GROUP", "Service Desk"),
         enabled_diagnostics=tuple(enabled_services),
-        resolved_state=os.getenv("AGENT_RESOLVED_STATE", "3"),
-        review_state=os.getenv("AGENT_REVIEW_STATE", "2"),
-        reassigned_state=os.getenv("AGENT_REASSIGN_STATE", os.getenv("AGENT_REVIEW_STATE", "2")),
-        sudo_password=os.getenv("AGENT_SUDO_PASSWORD", "").strip() or None,
+        resolved_state=_get_str(settings, "AGENT_RESOLVED_STATE", "3"),
+        review_state=_get_str(settings, "AGENT_REVIEW_STATE", "2"),
+        reassigned_state=_get_str(settings, "AGENT_REASSIGN_STATE", _get_str(settings, "AGENT_REVIEW_STATE", "2")),
+        sudo_password=_get_str(settings, "AGENT_SUDO_PASSWORD", "").strip() or None,
     )
 
 
-def load_dashboard_config() -> DashboardConfig:
+def load_dashboard_config(settings: Mapping[str, Any]) -> DashboardConfig:
     """Load dashboard configuration from environment variables."""
     return DashboardConfig(
-        refresh_interval_seconds=int(os.getenv("DASHBOARD_REFRESH_INTERVAL", "5")),
-        ticket_limit=int(os.getenv("DASHBOARD_TICKET_LIMIT", "20")),
+        refresh_interval_seconds=_get_int(settings, "DASHBOARD_REFRESH_INTERVAL", 5),
+        ticket_limit=_get_int(settings, "DASHBOARD_TICKET_LIMIT", 20),
     )
 
 
-def _apply_default_field_overrides(config: ServiceNowConfig) -> None:
+def _apply_default_field_overrides(config: ServiceNowConfig, settings: Mapping[str, Any]) -> None:
     """Allow optional overrides of default ticket fields via environment variables."""
     overrides = {
         "SERVICENOW_DEFAULT_CALLER_ID": "caller_id",
@@ -110,48 +110,54 @@ def _apply_default_field_overrides(config: ServiceNowConfig) -> None:
         "SERVICENOW_DEFAULT_STATE": "state",
     }
     for env_var, field_key in overrides.items():
-        value = os.getenv(env_var)
+        value = _get_str(settings, env_var)
         if value is not None and value.strip():
             config.default_fields[field_key] = value.strip()
 
 
 def _load_environment() -> None:
-    """Load environment variables from the nearest .env file."""
-    dotenv_path = find_dotenv(filename=".env", usecwd=True)
-    if dotenv_path:
-        load_dotenv(dotenv_path=dotenv_path, override=False)
-        logger.debug("Loaded environment from %s", dotenv_path)
+    """Load environment variables from config.yml if present."""
+    config_path = _find_config_file()
+    if not config_path:
+        logger.debug("No config.yml found; relying on existing environment variables.")
         return
 
-    for parent in Path(__file__).resolve().parents:
-        candidate = parent / ".env"
-        if candidate.exists():
-            load_dotenv(dotenv_path=candidate, override=False)
-            logger.debug("Loaded environment from %s", candidate)
-            return
+    try:
+        with open(config_path, "r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+    except Exception as exc:  # pragma: no cover - config read failure
+        logger.warning("Unable to read config.yml: %s", exc)
+        return
+
+    mapping = _extract_env_mapping(data)
+    for key, value in mapping.items():
+        if value is None:
+            continue
+        os.environ.setdefault(key, _stringify(value))
+    logger.debug("Loaded environment from %s", config_path)
 
 
 def run() -> None:
     """Entrypoint for the Streamlit application."""
-    _load_environment()
+    settings = _load_settings()
     if st is None:
         raise RuntimeError("Streamlit is not installed. Run `pip install streamlit` to launch the dashboard.")
 
     st.set_page_config(page_title="Self-Heal Automation", layout="wide")
     st.title("Self-Heal Automation Control Center")
 
-    dashboard_cfg = load_dashboard_config()
-    agent_cfg = load_agent_config()
+    dashboard_cfg = load_dashboard_config(settings)
+    agent_cfg = load_agent_config(settings)
     if agent_cfg.llm_provider == "ollama":
         logger.info(
             "Using OLLAMA_HOST=%s model=%s",
-            os.getenv("OLLAMA_HOST") or "(default)",
+            (_get_str(settings, "OLLAMA_HOST") or "(default)"),
             agent_cfg.llm_model,
         )
     else:
         logger.info("Using LLM provider=%s model=%s", agent_cfg.llm_provider, agent_cfg.llm_model)
 
-    sn_client = ServiceNowClient(load_servicenow_config())
+    sn_client = ServiceNowClient(load_servicenow_config(settings))
     agent = build_agent(sn_client, agent_cfg)
 
     _render_ticket_form(sn_client, agent)
@@ -241,18 +247,18 @@ def _launch_agent_thread(agent: TicketAutomationAgent, ticket: Dict[str, Any]) -
     thread.start()
 
 
-def _resolve_llm_settings() -> tuple[str, str]:
-    provider = _normalise_provider(os.getenv("LLM_PROVIDER", "ollama"))
-    model = _optional_env("LLM_MODEL")
+def _resolve_llm_settings(settings: Mapping[str, Any]) -> tuple[str, str]:
+    provider = _normalise_provider(_get_str(settings, "LLM_PROVIDER", "ollama"))
+    model = _get_str(settings, "LLM_MODEL")
     if not model:
         if provider == "azure_openai":
-            model = _optional_env("AZURE_OPENAI_DEPLOYMENT") or _optional_env("AZURE_OPENAI_MODEL")
+            model = _get_str(settings, "AZURE_OPENAI_DEPLOYMENT") or _get_str(settings, "AZURE_OPENAI_MODEL")
         elif provider == "gemini":
-            model = _optional_env("GEMINI_MODEL") or "gemini-1.5-flash"
+            model = _get_str(settings, "GEMINI_MODEL") or "gemini-1.5-flash"
         elif provider == "openai":
-            model = _optional_env("OPENAI_MODEL") or "gpt-4o"
+            model = _get_str(settings, "OPENAI_MODEL") or "gpt-4o"
         else:
-            model = os.getenv("OLLAMA_MODEL", "phi3:latest")
+            model = _get_str(settings, "OLLAMA_MODEL", "phi3:latest")
     return provider, model
 
 
@@ -267,27 +273,100 @@ def _normalise_provider(provider: str | None) -> str:
     return normalized
 
 
-def _optional_env(name: str) -> str | None:
-    value = os.getenv(name, "")
-    return value.strip() or None
-
-
 def _split_csv(value: str) -> Iterable[str]:
     return tuple(filter(None, (item.strip() for item in value.split(",") if item)))
 
 
-def _env_bool(name: str, *, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
+def _get_bool(settings: Mapping[str, Any], key: str, *, default: bool) -> bool:
+    if settings and key in settings:
+        val = settings[key]
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, (int, float)):
+            return bool(val)
+        if isinstance(val, str):
+            return val.strip().lower() in {"1", "true", "yes", "on"}
+    env_val = os.getenv(key)
+    if env_val is None:
         return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return env_val.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _require_env(name: str) -> str:
-    value = os.getenv(name)
+def _get_int(settings: Mapping[str, Any], key: str, default: int) -> int:
+    if settings and key in settings and settings[key] is not None:
+        try:
+            return int(settings[key])
+        except (TypeError, ValueError):
+            return default
+    env_val = os.getenv(key)
+    if env_val is None:
+        return default
+    try:
+        return int(env_val)
+    except ValueError:
+        return default
+
+
+def _get_str(settings: Mapping[str, Any], key: str, default: str | None = None) -> str | None:
+    if settings and key in settings and settings[key] is not None:
+        return str(settings[key])
+    env_val = os.getenv(key)
+    if env_val is None:
+        return default
+    return env_val
+
+
+def _require_value(settings: Mapping[str, Any], key: str) -> str:
+    value = _get_str(settings, key)
     if not value:
-        raise RuntimeError(f"Environment variable {name} is required for the dashboard.")
+        raise RuntimeError(f"Configuration value {key} is required for the dashboard.")
     return value
+
+
+def _find_config_file() -> Path | None:
+    """Locate config.yml starting from CWD and walking up parents."""
+    start = Path.cwd()
+    candidates = [start / "config.yml", start / "config.yaml"]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    for parent in Path(__file__).resolve().parents:
+        for name in ("config.yml", "config.yaml"):
+            candidate = parent / name
+            if candidate.exists():
+                return candidate
+    return None
+
+
+def _extract_env_mapping(data: Any) -> Mapping[str, Any]:
+    if isinstance(data, Mapping):
+        env_block = data.get("env")
+        if isinstance(env_block, Mapping):
+            return env_block
+        return data
+    return {}
+
+
+def _load_settings() -> Dict[str, Any]:
+    config_path = _find_config_file()
+    if not config_path:
+        logger.debug("No config.yml found; relying on existing environment variables.")
+        return {}
+    try:
+        with open(config_path, "r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Unable to read config.yml: %s", exc)
+        return {}
+    return dict(_extract_env_mapping(data))
+
+
+def _stringify(value: Any) -> str:
+    if isinstance(value, (list, tuple, set)):
+        return ",".join(str(item) for item in value)
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
 
 
 if __name__ == "__main__":
