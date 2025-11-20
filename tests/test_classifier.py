@@ -7,7 +7,57 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SRC_PATH = ROOT / "src" / "selfheal" / "agent" / "classifier.py"
 
-sys.modules.setdefault("ollama", types.SimpleNamespace(chat=None))
+def _fake_chat(**_: object) -> dict:
+    return {"message": {"content": ""}}
+
+sys.modules.setdefault("ollama", types.SimpleNamespace(chat=_fake_chat))
+langchain_openai = types.ModuleType("langchain_openai")
+class _FakeLCChat:
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        self.args = args
+        self.kwargs = kwargs
+    def invoke(self, messages: object) -> types.SimpleNamespace:
+        return types.SimpleNamespace(content="")
+langchain_openai.ChatOpenAI = _FakeLCChat  # type: ignore[attr-defined]
+langchain_openai.AzureChatOpenAI = _FakeLCChat  # type: ignore[attr-defined]
+sys.modules.setdefault("langchain_openai", langchain_openai)
+
+langchain_google_genai = types.ModuleType("langchain_google_genai")
+langchain_google_genai.ChatGoogleGenerativeAI = _FakeLCChat  # type: ignore[attr-defined]
+sys.modules.setdefault("langchain_google_genai", langchain_google_genai)
+
+langchain_core = types.ModuleType("langchain_core")
+langchain_core_messages = types.ModuleType("langchain_core.messages")
+class _BaseMessage:
+    def __init__(self, content: str = "") -> None:
+        self.content = content
+class SystemMessage(_BaseMessage):
+    pass
+class HumanMessage(_BaseMessage):
+    pass
+class AIMessage(_BaseMessage):
+    pass
+langchain_core_messages.SystemMessage = SystemMessage  # type: ignore[attr-defined]
+langchain_core_messages.HumanMessage = HumanMessage  # type: ignore[attr-defined]
+langchain_core_messages.AIMessage = AIMessage  # type: ignore[attr-defined]
+langchain_core_messages.BaseMessage = _BaseMessage  # type: ignore[attr-defined]
+langchain_core.messages = langchain_core_messages  # type: ignore[attr-defined]
+sys.modules.setdefault("langchain_core", langchain_core)
+sys.modules.setdefault("langchain_core.messages", langchain_core_messages)
+langgraph_module = types.ModuleType("langgraph")
+langgraph_graph = types.ModuleType("langgraph.graph")
+langgraph_graph.END = None
+langgraph_graph.StateGraph = types.SimpleNamespace  # type: ignore[assignment]
+langgraph_module.graph = langgraph_graph
+sys.modules.setdefault("langgraph", langgraph_module)
+sys.modules.setdefault("langgraph.graph", langgraph_graph)
+selfheal_pkg = types.ModuleType("selfheal")
+selfheal_pkg.__path__ = [str(ROOT / "src" / "selfheal")]
+selfheal_agent_pkg = types.ModuleType("selfheal.agent")
+selfheal_agent_pkg.__path__ = [str(ROOT / "src" / "selfheal" / "agent")]
+selfheal_pkg.agent = selfheal_agent_pkg  # type: ignore[attr-defined]
+sys.modules.setdefault("selfheal", selfheal_pkg)
+sys.modules.setdefault("selfheal.agent", selfheal_agent_pkg)
 
 spec = importlib.util.spec_from_file_location("selfheal.agent.classifier", SRC_PATH)
 if spec is None or spec.loader is None:

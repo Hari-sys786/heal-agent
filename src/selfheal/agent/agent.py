@@ -9,6 +9,7 @@ from langgraph.graph import END, StateGraph
 from selfheal.agent.classifier import TicketClassifier, TicketIntent
 from selfheal.agent.diagnostics import DiagnosticsConfig, DiagnosticsSuite
 from selfheal.agent.installers import InstallerConfig, PackageInstaller
+from selfheal.agent.llm_selector import build_llm_client_for_agent
 from selfheal.agent.ticket_updater import TicketUpdater, TicketUpdaterConfig
 from selfheal.utils.servicenow_client import ServiceNowClient
 
@@ -28,7 +29,14 @@ class TicketState(TypedDict, total=False):
 class AgentConfig:
     """Runtime configuration for the automation agent."""
 
-    ollama_model: str = "phi3:latest"
+    llm_provider: str = "ollama"
+    llm_model: str = "phi3:latest"
+    azure_openai_endpoint: str | None = None
+    azure_openai_api_key: str | None = None
+    azure_openai_api_version: str | None = None
+    azure_openai_deployment: str | None = None
+    openai_api_key: str | None = None
+    gemini_api_key: str | None = None
     dry_run_installs: bool = True
     package_manager: str = "apt-get"
     auto_resolve: bool = False
@@ -60,13 +68,24 @@ class TicketAutomationAgent:
 def build_agent(sn_client: ServiceNowClient, config: Optional[AgentConfig] = None) -> TicketAutomationAgent:
     """Construct the LangGraph workflow and expose a simple interface."""
     cfg = config or AgentConfig()
-    logger.debug("Building automation agent with config: %s", cfg)
+    logger.debug(
+        "Building automation agent (llm_provider=%s model=%s dry_run=%s package_manager=%s)",
+        cfg.llm_provider,
+        cfg.llm_model,
+        cfg.dry_run_installs,
+        cfg.package_manager,
+    )
 
     diagnostics = DiagnosticsSuite(
         sn_client,
         DiagnosticsConfig(dry_run=cfg.dry_run_installs, enabled_routines=cfg.enabled_diagnostics),
     )
-    classifier = TicketClassifier(model=cfg.ollama_model, supported_services=diagnostics.supported_services())
+    llm_client = build_llm_client_for_agent(cfg)
+    classifier = TicketClassifier(
+        model=cfg.llm_model,
+        llm_client=llm_client,
+        supported_services=diagnostics.supported_services(),
+    )
     installer = PackageInstaller(
         sn_client,
         InstallerConfig(

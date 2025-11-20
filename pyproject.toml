@@ -6,10 +6,12 @@ authors = [
     {name = "Hari-sys786",email = "harimanie@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.13,<4.0.0"
 dependencies = [
     "langgraph>=0.2.1",
     "ollama>=0.3.0",
+    "langchain-openai==1.0.3",
+    "langchain-google-genai==3.1.0",
     "streamlit (>=1.50.0,<2.0.0)",
     "python-dotenv>=1.0.1",
     "dotenv (>=0.9.9,<0.10.0)",

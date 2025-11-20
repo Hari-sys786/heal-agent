@@ -67,9 +67,17 @@ def load_servicenow_config() -> ServiceNowConfig:
 def load_agent_config() -> AgentConfig:
     """Build agent configuration from environment variables."""
     enabled_services = _split_csv(os.getenv("AGENT_ENABLED_SERVICES", ""))
+    llm_provider, llm_model = _resolve_llm_settings()
 
     return AgentConfig(
-        ollama_model=os.getenv("OLLAMA_MODEL", "phi3:latest"),
+        llm_provider=llm_provider,
+        llm_model=llm_model,
+        azure_openai_endpoint=_optional_env("AZURE_OPENAI_ENDPOINT"),
+        azure_openai_api_key=_optional_env("AZURE_OPENAI_API_KEY"),
+        azure_openai_api_version=_optional_env("AZURE_OPENAI_API_VERSION"),
+        azure_openai_deployment=_optional_env("AZURE_OPENAI_DEPLOYMENT") if llm_provider == "azure_openai" else None,
+        openai_api_key=_optional_env("OPENAI_API_KEY"),
+        gemini_api_key=_optional_env("GEMINI_API_KEY"),
         dry_run_installs=_env_bool("AGENT_DRY_RUN", default=True),
         package_manager=os.getenv("AGENT_PACKAGE_MANAGER", "apt-get"),
         auto_resolve=_env_bool("AGENT_AUTO_RESOLVE", default=False),
@@ -129,14 +137,22 @@ def run() -> None:
     if st is None:
         raise RuntimeError("Streamlit is not installed. Run `pip install streamlit` to launch the dashboard.")
 
-    logger.info("Using OLLAMA_HOST=%s", os.getenv("OLLAMA_HOST") or "(default)")
-
     st.set_page_config(page_title="Self-Heal Automation", layout="wide")
     st.title("Self-Heal Automation Control Center")
 
     dashboard_cfg = load_dashboard_config()
+    agent_cfg = load_agent_config()
+    if agent_cfg.llm_provider == "ollama":
+        logger.info(
+            "Using OLLAMA_HOST=%s model=%s",
+            os.getenv("OLLAMA_HOST") or "(default)",
+            agent_cfg.llm_model,
+        )
+    else:
+        logger.info("Using LLM provider=%s model=%s", agent_cfg.llm_provider, agent_cfg.llm_model)
+
     sn_client = ServiceNowClient(load_servicenow_config())
-    agent = build_agent(sn_client, load_agent_config())
+    agent = build_agent(sn_client, agent_cfg)
 
     _render_ticket_form(sn_client, agent)
     _render_live_tickets(sn_client, dashboard_cfg)
@@ -223,6 +239,37 @@ def _launch_agent_thread(agent: TicketAutomationAgent, ticket: Dict[str, Any]) -
     thread = threading.Thread(target=_worker, name=f"agent-{ticket.get('sys_id', 'ticket')}", daemon=True)
     add_script_run_ctx(thread)
     thread.start()
+
+
+def _resolve_llm_settings() -> tuple[str, str]:
+    provider = _normalise_provider(os.getenv("LLM_PROVIDER", "ollama"))
+    model = _optional_env("LLM_MODEL")
+    if not model:
+        if provider == "azure_openai":
+            model = _optional_env("AZURE_OPENAI_DEPLOYMENT") or _optional_env("AZURE_OPENAI_MODEL")
+        elif provider == "gemini":
+            model = _optional_env("GEMINI_MODEL") or "gemini-1.5-flash"
+        elif provider == "openai":
+            model = _optional_env("OPENAI_MODEL") or "gpt-4o"
+        else:
+            model = os.getenv("OLLAMA_MODEL", "phi3:latest")
+    return provider, model
+
+
+def _normalise_provider(provider: str | None) -> str:
+    if not provider:
+        return "ollama"
+    normalized = provider.strip().lower().replace("-", "_")
+    if normalized in {"azure", "azureopenai"}:
+        return "azure_openai"
+    if normalized in {"google", "google_ai"}:
+        return "gemini"
+    return normalized
+
+
+def _optional_env(name: str) -> str | None:
+    value = os.getenv(name, "")
+    return value.strip() or None
 
 
 def _split_csv(value: str) -> Iterable[str]:

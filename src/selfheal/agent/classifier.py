@@ -6,9 +6,12 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
+
 from dotenv import load_dotenv
+
+from selfheal.agent.llm_selector import ChatModel, build_llm_client_from_env
+
 load_dotenv()
-import ollama
 
 logging.getLogger('selfheal').setLevel(logging.DEBUG)
 
@@ -62,12 +65,13 @@ class ClassifierResult:
 
 
 class TicketClassifier:
-    """Runs an Ollama model to determine ticket intent and extract entities."""
+    """Runs a configured LLM to determine ticket intent and extract entities."""
 
     def __init__(
         self,
         *,
         model: str,
+        llm_client: ChatModel | None = None,
         installation_keywords: Iterable[str] | None = None,
         service_keywords: Iterable[str] | None = None,
         supported_services: Iterable[str] | None = None,
@@ -95,13 +99,13 @@ class TicketClassifier:
         self._logger = logging.getLogger(__name__)
         self._latest_version_cache: Dict[str, str] = {}
         self._install_strategy_cache: Dict[str, PackageRequest] = {}
+        self._llm: ChatModel = llm_client or build_llm_client_from_env()
 
     def classify(self, short_description: str, description: str) -> ClassifierResult:
         """Send a JSON-constrained prompt to the LLM and parse the response."""
         prompt = self._build_prompt(short_description, description)
-        response = ollama.chat(
-            model=self.model,
-            messages=[
+        raw_output = self._llm.chat(
+            [
                 {
                     "role": "system",
                     "content": (
@@ -111,10 +115,8 @@ class TicketClassifier:
                     ),
                 },
                 {"role": "user", "content": prompt},
-            ],
+            ]
         )
-
-        raw_output = response["message"]["content"]
         self._logger.info("LLM classifier raw output: %s", raw_output)
         data = self._safe_json(raw_output)
         intent = self._normalise_intent(data.get("intent"))
@@ -448,19 +450,17 @@ class TicketClassifier:
         )
 
         try:
-            response = ollama.chat(
-                model=self.model,
-                messages=[
+            response = self._llm.chat(
+                [
                     {"role": "system", "content": "Respond with JSON only."},
                     {"role": "user", "content": prompt},
-                ],
+                ]
             )
         except Exception as exc:  # pragma: no cover - LLM failure path
             self._logger.warning("Install strategy lookup failed for %s: %s", package.name, exc)
             return None
 
-        payload = response.get("message", {}).get("content", "")
-        data = self._safe_json(payload)
+        data = self._safe_json(response)
 
         manager_raw = data.get("manager")
         manager = str(manager_raw).strip().lower() if isinstance(manager_raw, str) else None
@@ -508,19 +508,17 @@ class TicketClassifier:
         )
 
         try:
-            response = ollama.chat(
-                model=self.model,
-                messages=[
+            response = self._llm.chat(
+                [
                     {"role": "system", "content": "Respond with JSON only."},
                     {"role": "user", "content": prompt},
-                ],
+                ]
             )
         except Exception as exc:  # pragma: no cover - LLM failure path
             self._logger.warning("Latest version lookup failed for %s: %s", package_name, exc)
             return None
 
-        payload = response.get("message", {}).get("content", "")
-        data = self._safe_json(payload)
+        data = self._safe_json(response)
         version = data.get("version")
         if isinstance(version, str):
             sanitized = self._sanitize_version_string(version)
