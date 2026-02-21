@@ -454,7 +454,7 @@ def run() -> None:
             rows_html = ""
             for ticket in tickets_list:
                 number = ticket.get("number") or ticket.get("sys_id", "—")
-                short_desc = ticket.get("short_description", "—")
+                short_desc = ticket.get("description") or ticket.get("short_description", "—")
                 cat = ticket.get("category", "—")
                 impact = ticket.get("impact", "3")
                 urg = ticket.get("urgency", "3")
