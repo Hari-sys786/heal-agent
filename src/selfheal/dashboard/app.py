@@ -114,10 +114,11 @@ def _apply_default_field_overrides(config: ServiceNowConfig, settings: Mapping[s
 
 CUSTOM_CSS = """
 <style>
-    /* Hide Streamlit branding */
+    /* Hide Streamlit branding + sidebar */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
+    section[data-testid="stSidebar"] {display: none !important;}
 
     /* Dark theme overrides */
     .stApp {
@@ -346,7 +347,7 @@ def run() -> None:
         page_title="Self-Heal Automation",
         page_icon="🤖",
         layout="wide",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="collapsed",
     )
 
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
@@ -356,20 +357,6 @@ def run() -> None:
     sn_config = load_servicenow_config(settings)
     sn_client = ServiceNowClient(sn_config)
     agent = build_agent(sn_client, agent_cfg)
-
-    # ─── Sidebar ──────────────────────────────────────────
-    with st.sidebar:
-        st.markdown("### 🤖 Self-Heal Agent")
-        st.markdown("---")
-        st.markdown(f"**Instance:** `{sn_config.instance_url}`")
-        st.markdown(f"**Table:** `{sn_config.table}`")
-        st.markdown(f"**LLM:** `{agent_cfg.llm_provider}` / `{agent_cfg.llm_model}`")
-        st.markdown(f"**Dry Run:** `{agent_cfg.dry_run_installs}`")
-        st.markdown(f"**Auto Resolve:** `{agent_cfg.auto_resolve}`")
-        st.markdown("---")
-        st.markdown(f"**Package Manager:** `{agent_cfg.package_manager}`")
-        diagnostics = ", ".join(agent_cfg.enabled_diagnostics) if agent_cfg.enabled_diagnostics else "None"
-        st.markdown(f"**Diagnostics:** `{diagnostics}`")
 
     # ─── Hero Header ──────────────────────────────────────
     st.markdown("""
@@ -435,13 +422,6 @@ def run() -> None:
         with st.form("incident_form", clear_on_submit=True):
             short_description = st.text_input("Short Description", placeholder="e.g., Install nginx on web-02")
             details = st.text_area("Details", height=120, placeholder="Describe the issue or request...")
-
-            form_col1, form_col2 = st.columns(2)
-            with form_col1:
-                category = st.selectbox("Category", ["request", "software", "hardware", "network", "inquiry"])
-            with form_col2:
-                urgency = st.selectbox("Urgency", ["3 - Low", "2 - Medium", "1 - High"])
-
             submitted = st.form_submit_button("🚀 Submit & Auto-Heal", use_container_width=True)
 
         if submitted:
@@ -449,12 +429,9 @@ def run() -> None:
                 st.error("Short description is required.")
             else:
                 try:
-                    urgency_val = urgency.split(" - ")[0]
                     ticket = sn_client.create_incident(
                         short_description.strip(),
                         details.strip(),
-                        category=category,
-                        urgency=urgency_val,
                     )
                     ticket_label = ticket.get("number") or ticket.get("sys_id", "(unknown)")
                     st.success(f"✅ Ticket **{ticket_label}** created. Automation triggered!")
