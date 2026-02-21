@@ -513,7 +513,28 @@ def run() -> None:
                 </tbody>
             </table>
             """
-            st.markdown(table_html, unsafe_allow_html=True)
+            # Use st.components for reliable HTML rendering
+            import streamlit.components.v1 as components
+            full_html = f"""
+            <html><head><style>
+            body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: transparent; }}
+            .ticket-table {{ width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 12px; overflow: hidden; border: 1px solid rgba(148,163,184,0.15); }}
+            .ticket-table th {{ background: #1e293b; color: #94a3b8; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 12px 16px; text-align: left; border-bottom: 1px solid rgba(148,163,184,0.1); }}
+            .ticket-table td {{ background: #0f172a; color: #e2e8f0; padding: 12px 16px; font-size: 13px; border-bottom: 1px solid rgba(148,163,184,0.05); }}
+            .ticket-table tr:hover td {{ background: #1e293b; }}
+            .state-new {{ color: #60a5fa; background: rgba(96,165,250,0.1); padding: 3px 10px; border-radius: 12px; font-size: 12px; }}
+            .state-progress {{ color: #fbbf24; background: rgba(251,191,36,0.1); padding: 3px 10px; border-radius: 12px; font-size: 12px; }}
+            .state-resolved {{ color: #4ade80; background: rgba(74,222,128,0.1); padding: 3px 10px; border-radius: 12px; font-size: 12px; }}
+            .state-closed {{ color: #94a3b8; background: rgba(148,163,184,0.1); padding: 3px 10px; border-radius: 12px; font-size: 12px; }}
+            .ai-yes {{ color: #4ade80; font-weight: 600; }}
+            .ai-no {{ color: #94a3b8; }}
+            .priority-high {{ color: #f87171; }}
+            .priority-medium {{ color: #fbbf24; }}
+            .priority-low {{ color: #4ade80; }}
+            </style></head><body>{table_html}</body></html>
+            """
+            row_count = len(tickets_list)
+            components.html(full_html, height=max(200, 56 + row_count * 48), scrolling=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔄 Refresh Tickets", use_container_width=True):
