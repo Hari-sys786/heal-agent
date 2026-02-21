@@ -1,7 +1,7 @@
 env:
-  SERVICENOW_INSTANCE_URL: "https://dev226244.service-now.com/"
+  SERVICENOW_INSTANCE_URL: "https://dev216001.service-now.com/"
   SERVICENOW_USERNAME: "admin"
-  SERVICENOW_PASSWORD: "tZj7!9NctV+J"
+  SERVICENOW_PASSWORD: "^pz69A*hlNQL"
 
   # Agent behaviour
   LLM_PROVIDER: "azure_openai"  # Options: ollama | openai | azure_openai | gemini
