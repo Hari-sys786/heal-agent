@@ -4,8 +4,8 @@ env:
   SERVICENOW_PASSWORD: "^pz69A*hlNQL"
 
   # Agent behaviour
-  LLM_PROVIDER: "azure_openai"  # Options: ollama | openai | azure_openai | gemini
-  LLM_MODEL: "phi3:latest"
+  LLM_PROVIDER: "gemini"  # Options: ollama | openai | azure_openai | gemini
+  LLM_MODEL: "gemini-1.5-flash"
   AGENT_DRY_RUN: false
   AGENT_PACKAGE_MANAGER: "apt-get"
   AGENT_AUTO_RESOLVE: true
@@ -28,7 +28,7 @@ env:
   AZURE_OPENAI_API_VERSION: "2025-01-01-preview"
 
   # Gemini (when LLM_PROVIDER=gemini)
-  GEMINI_API_KEY: ""
+  GEMINI_API_KEY: "AIzaSyBIYIwabh8cDLzSDZ1XBzTwxDw_w6o9lBg"
   GEMINI_MODEL: "gemini-1.5-flash"
 
   # Dashboard tuning

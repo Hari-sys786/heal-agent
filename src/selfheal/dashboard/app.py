@@ -18,11 +18,10 @@ if __package__ in {None, ""}:
 try:
     import streamlit as st
     from streamlit.runtime.scriptrunner import add_script_run_ctx
-except ImportError:  # pragma: no cover - dashboard only runs when Streamlit is installed
-    st = None  # type: ignore[assignment]
+except ImportError:
+    st = None
 
-    def add_script_run_ctx(_: threading.Thread) -> None:  # type: ignore[misc]
-        """Fallback no-op when Streamlit runtime context is unavailable."""
+    def add_script_run_ctx(_: threading.Thread) -> None:
         return None
 
 from selfheal.agent import AgentConfig, TicketAutomationAgent, build_agent
@@ -33,14 +32,13 @@ logger = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class DashboardConfig:
-    """Configuration for the Streamlit dashboard."""
-
     refresh_interval_seconds: int = 5
     ticket_limit: int = 20
 
 
+# ─── Config Loaders (unchanged logic) ────────────────────────────────────────
+
 def load_servicenow_config(settings: Mapping[str, Any]) -> ServiceNowConfig:
-    """Load ServiceNow credentials from environment variables."""
     assignment_group = _get_str(settings, "SERVICENOW_ASSIGNMENT_GROUP", "").strip() or None
     token = _get_str(settings, "SERVICENOW_TOKEN", "").strip() or None
     username: str | None
@@ -65,10 +63,8 @@ def load_servicenow_config(settings: Mapping[str, Any]) -> ServiceNowConfig:
 
 
 def load_agent_config(settings: Mapping[str, Any]) -> AgentConfig:
-    """Build agent configuration from environment variables."""
     enabled_services = _split_csv(_get_str(settings, "AGENT_ENABLED_SERVICES", ""))
     llm_provider, llm_model = _resolve_llm_settings(settings)
-
     return AgentConfig(
         llm_provider=llm_provider,
         llm_model=llm_model,
@@ -93,7 +89,6 @@ def load_agent_config(settings: Mapping[str, Any]) -> AgentConfig:
 
 
 def load_dashboard_config(settings: Mapping[str, Any]) -> DashboardConfig:
-    """Load dashboard configuration from environment variables."""
     return DashboardConfig(
         refresh_interval_seconds=_get_int(settings, "DASHBOARD_REFRESH_INTERVAL", 5),
         ticket_limit=_get_int(settings, "DASHBOARD_TICKET_LIMIT", 20),
@@ -101,7 +96,6 @@ def load_dashboard_config(settings: Mapping[str, Any]) -> DashboardConfig:
 
 
 def _apply_default_field_overrides(config: ServiceNowConfig, settings: Mapping[str, Any]) -> None:
-    """Allow optional overrides of default ticket fields via environment variables."""
     overrides = {
         "SERVICENOW_DEFAULT_CALLER_ID": "caller_id",
         "SERVICENOW_DEFAULT_CATEGORY": "category",
@@ -116,137 +110,429 @@ def _apply_default_field_overrides(config: ServiceNowConfig, settings: Mapping[s
             config.default_fields[field_key] = value.strip()
 
 
-def _load_environment() -> None:
-    """Load environment variables from config.yml if present."""
-    config_path = _find_config_file()
-    if not config_path:
-        logger.debug("No config.yml found; relying on existing environment variables.")
-        return
+# ─── Custom Theme CSS ────────────────────────────────────────────────────────
 
-    try:
-        with open(config_path, "r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh) or {}
-    except Exception as exc:  # pragma: no cover - config read failure
-        logger.warning("Unable to read config.yml: %s", exc)
-        return
+CUSTOM_CSS = """
+<style>
+    /* Hide Streamlit branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
 
-    mapping = _extract_env_mapping(data)
-    for key, value in mapping.items():
-        if value is None:
-            continue
-        os.environ.setdefault(key, _stringify(value))
-    logger.debug("Loaded environment from %s", config_path)
+    /* Dark theme overrides */
+    .stApp {
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+    }
 
+    /* Hero header */
+    .hero-header {
+        background: linear-gradient(135deg, rgba(59,130,246,0.15) 0%, rgba(139,92,246,0.1) 100%);
+        border: 1px solid rgba(59,130,246,0.2);
+        border-radius: 16px;
+        padding: 28px 32px;
+        margin-bottom: 24px;
+    }
+    .hero-header h1 {
+        color: #f1f5f9;
+        font-size: 28px;
+        font-weight: 700;
+        margin: 0 0 4px 0;
+    }
+    .hero-header p {
+        color: #94a3b8;
+        font-size: 14px;
+        margin: 0;
+    }
+
+    /* Status badges */
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .status-connected {
+        background: rgba(34,197,94,0.15);
+        color: #4ade80;
+        border: 1px solid rgba(34,197,94,0.3);
+    }
+    .status-error {
+        background: rgba(239,68,68,0.15);
+        color: #f87171;
+        border: 1px solid rgba(239,68,68,0.3);
+    }
+
+    /* Metric cards */
+    .metric-card {
+        background: rgba(30,41,59,0.8);
+        border: 1px solid rgba(148,163,184,0.1);
+        border-radius: 12px;
+        padding: 20px;
+        text-align: center;
+        backdrop-filter: blur(12px);
+        transition: all 0.2s;
+    }
+    .metric-card:hover {
+        border-color: rgba(59,130,246,0.3);
+        transform: translateY(-2px);
+    }
+    .metric-value {
+        font-size: 32px;
+        font-weight: 700;
+        color: #f1f5f9;
+        margin: 0;
+    }
+    .metric-label {
+        font-size: 13px;
+        color: #94a3b8;
+        margin: 4px 0 0 0;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .metric-icon {
+        font-size: 24px;
+        margin-bottom: 8px;
+    }
+
+    /* Section headers */
+    .section-header {
+        color: #f1f5f9;
+        font-size: 18px;
+        font-weight: 600;
+        margin: 24px 0 12px 0;
+        padding-bottom: 8px;
+        border-bottom: 1px solid rgba(148,163,184,0.1);
+    }
+
+    /* Form styling */
+    .stTextInput > div > div > input,
+    .stTextArea > div > div > textarea,
+    .stSelectbox > div > div {
+        background: rgba(30,41,59,0.6) !important;
+        border: 1px solid rgba(148,163,184,0.2) !important;
+        border-radius: 8px !important;
+        color: #f1f5f9 !important;
+    }
+    .stTextInput > div > div > input:focus,
+    .stTextArea > div > div > textarea:focus {
+        border-color: rgba(59,130,246,0.5) !important;
+        box-shadow: 0 0 0 2px rgba(59,130,246,0.15) !important;
+    }
+
+    /* Button styling */
+    .stButton > button {
+        background: linear-gradient(135deg, #3b82f6, #6366f1) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 8px 24px !important;
+        font-weight: 600 !important;
+        transition: all 0.2s !important;
+    }
+    .stButton > button:hover {
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 16px rgba(59,130,246,0.3) !important;
+    }
+
+    /* Table styling */
+    .ticket-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid rgba(148,163,184,0.1);
+    }
+    .ticket-table th {
+        background: rgba(30,41,59,0.9);
+        color: #94a3b8;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 12px 16px;
+        text-align: left;
+        border-bottom: 1px solid rgba(148,163,184,0.1);
+    }
+    .ticket-table td {
+        background: rgba(15,23,42,0.6);
+        color: #e2e8f0;
+        padding: 12px 16px;
+        font-size: 13px;
+        border-bottom: 1px solid rgba(148,163,184,0.05);
+    }
+    .ticket-table tr:hover td {
+        background: rgba(30,41,59,0.8);
+    }
+
+    /* State badges */
+    .state-new { color: #60a5fa; background: rgba(96,165,250,0.1); padding: 3px 10px; border-radius: 12px; font-size: 12px; }
+    .state-progress { color: #fbbf24; background: rgba(251,191,36,0.1); padding: 3px 10px; border-radius: 12px; font-size: 12px; }
+    .state-resolved { color: #4ade80; background: rgba(74,222,128,0.1); padding: 3px 10px; border-radius: 12px; font-size: 12px; }
+    .state-closed { color: #94a3b8; background: rgba(148,163,184,0.1); padding: 3px 10px; border-radius: 12px; font-size: 12px; }
+
+    /* AI badge */
+    .ai-yes { color: #4ade80; font-weight: 600; }
+    .ai-no { color: #94a3b8; }
+
+    /* Impact/Urgency badges */
+    .priority-high { color: #f87171; }
+    .priority-medium { color: #fbbf24; }
+    .priority-low { color: #4ade80; }
+
+    /* Log area */
+    .log-container {
+        background: rgba(15,23,42,0.8);
+        border: 1px solid rgba(148,163,184,0.1);
+        border-radius: 12px;
+        padding: 16px;
+        font-family: 'JetBrains Mono', 'Fira Code', monospace;
+        font-size: 12px;
+        color: #94a3b8;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background: rgba(15,23,42,0.95) !important;
+        border-right: 1px solid rgba(148,163,184,0.1) !important;
+    }
+    section[data-testid="stSidebar"] .stMarkdown h1,
+    section[data-testid="stSidebar"] .stMarkdown h2,
+    section[data-testid="stSidebar"] .stMarkdown h3 {
+        color: #f1f5f9 !important;
+    }
+    section[data-testid="stSidebar"] .stMarkdown p {
+        color: #94a3b8 !important;
+    }
+</style>
+"""
+
+
+def _state_badge(state: str | None) -> str:
+    state = str(state or "").strip()
+    mapping = {"1": ("New", "new"), "2": ("In Progress", "progress"), "3": ("Resolved", "resolved"), "6": ("Closed", "closed")}
+    label, cls = mapping.get(state, (state or "Unknown", "new"))
+    return f'<span class="state-{cls}">{label}</span>'
+
+
+def _ai_badge(done: Any) -> str:
+    if str(done).strip().lower() in {"true", "yes", "1"}:
+        return '<span class="ai-yes">✅ Yes</span>'
+    return '<span class="ai-no">—</span>'
+
+
+def _priority_class(value: Any) -> str:
+    v = str(value or "3").strip()
+    if v == "1":
+        return "priority-high"
+    elif v == "2":
+        return "priority-medium"
+    return "priority-low"
+
+
+# ─── Main App ────────────────────────────────────────────────────────────────
 
 def run() -> None:
-    """Entrypoint for the Streamlit application."""
     settings = _load_settings()
     if st is None:
-        raise RuntimeError("Streamlit is not installed. Run `pip install streamlit` to launch the dashboard.")
+        raise RuntimeError("Streamlit is not installed.")
 
-    st.set_page_config(page_title="Self-Heal Automation", layout="wide")
-    st.title("Self-Heal Automation Control Center")
+    st.set_page_config(
+        page_title="Self-Heal Automation",
+        page_icon="🤖",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
     dashboard_cfg = load_dashboard_config(settings)
     agent_cfg = load_agent_config(settings)
-    if agent_cfg.llm_provider == "ollama":
-        logger.info(
-            "Using OLLAMA_HOST=%s model=%s",
-            (agent_cfg.ollama_host or "(default)"),
-            agent_cfg.llm_model,
-        )
-    else:
-        logger.info("Using LLM provider=%s model=%s", agent_cfg.llm_provider, agent_cfg.llm_model)
-
-    sn_client = ServiceNowClient(load_servicenow_config(settings))
+    sn_config = load_servicenow_config(settings)
+    sn_client = ServiceNowClient(sn_config)
     agent = build_agent(sn_client, agent_cfg)
 
-    _render_ticket_form(sn_client, agent)
-    _render_live_tickets(sn_client, dashboard_cfg)
+    # ─── Sidebar ──────────────────────────────────────────
+    with st.sidebar:
+        st.markdown("### 🤖 Self-Heal Agent")
+        st.markdown("---")
+        st.markdown(f"**Instance:** `{sn_config.instance_url}`")
+        st.markdown(f"**Table:** `{sn_config.table}`")
+        st.markdown(f"**LLM:** `{agent_cfg.llm_provider}` / `{agent_cfg.llm_model}`")
+        st.markdown(f"**Dry Run:** `{agent_cfg.dry_run_installs}`")
+        st.markdown(f"**Auto Resolve:** `{agent_cfg.auto_resolve}`")
+        st.markdown("---")
+        st.markdown(f"**Package Manager:** `{agent_cfg.package_manager}`")
+        diagnostics = ", ".join(agent_cfg.enabled_diagnostics) if agent_cfg.enabled_diagnostics else "None"
+        st.markdown(f"**Diagnostics:** `{diagnostics}`")
 
+    # ─── Hero Header ──────────────────────────────────────
+    st.markdown("""
+    <div class="hero-header">
+        <h1>🛡️ Self-Heal Automation Control Center</h1>
+        <p>AI-powered incident automation • ServiceNow integration • Real-time remediation</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-def _render_ticket_form(sn_client: ServiceNowClient, agent: TicketAutomationAgent) -> None:
-    st.subheader("Create ServiceNow Ticket")
-    with st.form("incident_form"):
-        short_description = st.text_input("Short Description", max_chars=160)
-        details = st.text_area("Details", height=200)
-        submitted = st.form_submit_button("Submit")
-
-    if not submitted:
-        return
-
-    if not short_description.strip():
-        st.error("Short description is required.")
-        return
-
+    # ─── Connection Test ──────────────────────────────────
     try:
-        ticket = sn_client.create_incident(short_description.strip(), details.strip())
+        tickets_list = list(sn_client.list_incidents(limit=dashboard_cfg.ticket_limit))
+        st.markdown('<span class="status-badge status-connected">● Connected to ServiceNow</span>', unsafe_allow_html=True)
     except RuntimeError as exc:
-        st.error(f"Failed to create incident: {exc}")
-        return
+        st.markdown(f'<span class="status-badge status-error">● Connection Failed</span>', unsafe_allow_html=True)
+        st.error(f"ServiceNow error: {exc}")
+        tickets_list = []
 
-    ticket_label = ticket.get("number") or ticket.get("short_description") or ticket.get("sys_id", "(unknown)")
-    st.success(f"Ticket {ticket_label} created. Automation has been triggered.")
-    _launch_agent_thread(agent, ticket)
+    # ─── Metrics Row ──────────────────────────────────────
+    total_tickets = len(tickets_list)
+    ai_done_count = sum(1 for t in tickets_list if str(t.get("ai_done", "")).strip().lower() in {"true", "yes", "1"})
+    new_count = sum(1 for t in tickets_list if str(t.get("state", "")).strip() == "1")
+    resolved_count = sum(1 for t in tickets_list if str(t.get("state", "")).strip() == "3")
 
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">🎫</div>
+            <p class="metric-value">{total_tickets}</p>
+            <p class="metric-label">Total Tickets</p>
+        </div>""", unsafe_allow_html=True)
+    with col2:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">🆕</div>
+            <p class="metric-value">{new_count}</p>
+            <p class="metric-label">New / Open</p>
+        </div>""", unsafe_allow_html=True)
+    with col3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">✅</div>
+            <p class="metric-value">{resolved_count}</p>
+            <p class="metric-label">Resolved</p>
+        </div>""", unsafe_allow_html=True)
+    with col4:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">🤖</div>
+            <p class="metric-value">{ai_done_count}</p>
+            <p class="metric-label">AI Processed</p>
+        </div>""", unsafe_allow_html=True)
 
-def _render_live_tickets(sn_client: ServiceNowClient, config: DashboardConfig) -> None:
-    st.subheader("My Tickets")
-    placeholder = st.empty()
+    st.markdown("<br>", unsafe_allow_html=True)
 
-    try:
-        tickets = list(sn_client.list_incidents(limit=config.ticket_limit))
-    except RuntimeError as exc:
-        placeholder.error(f"Unable to fetch tickets from ServiceNow: {exc}")
-        st.stop()
-        return
+    # ─── Two Column Layout ────────────────────────────────
+    left_col, right_col = st.columns([1, 2])
 
-    if not tickets:
-        placeholder.info("No tickets assigned to Auto-Bot.")
-        return
+    # ─── Create Ticket Form ───────────────────────────────
+    with left_col:
+        st.markdown('<div class="section-header">📝 Create New Ticket</div>', unsafe_allow_html=True)
+        with st.form("incident_form", clear_on_submit=True):
+            short_description = st.text_input("Short Description", placeholder="e.g., Install nginx on web-02")
+            details = st.text_area("Details", height=120, placeholder="Describe the issue or request...")
 
-    table_data = {
-        "Ticket": [],
-        "Short Description": [],
-        "Details": [],
-        "Category": [],
-        "Subcategory": [],
-        "Impact": [],
-        "Urgency": [],
-        "State": [],
-        "AI Done": [],
-        "Updated": [],
-    }
+            form_col1, form_col2 = st.columns(2)
+            with form_col1:
+                category = st.selectbox("Category", ["request", "software", "hardware", "network", "inquiry"])
+            with form_col2:
+                urgency = st.selectbox("Urgency", ["3 - Low", "2 - Medium", "1 - High"])
 
-    for ticket in tickets:
-        table_data["Ticket"].append(ticket.get("number") or ticket.get("sys_id"))
-        table_data["Short Description"].append(ticket.get("short_description"))
-        table_data["Details"].append(ticket.get("description"))
-        table_data["Category"].append(ticket.get("category"))
-        table_data["Subcategory"].append(ticket.get("subcategory"))
-        table_data["Impact"].append(ticket.get("impact"))
-        table_data["Urgency"].append(ticket.get("urgency"))
-        table_data["State"].append(ticket.get("state"))
-        table_data["AI Done"].append("Yes" if ticket.get("ai_done") else "No")
-        table_data["Updated"].append(ticket.get("sys_updated_on") or ticket.get("updated_on"))
+            submitted = st.form_submit_button("🚀 Submit & Auto-Heal", use_container_width=True)
 
-    placeholder.table(table_data)
-    if st.button("Refresh tickets"):
-        st.rerun()
-    st.caption(f"Recommended refresh cadence: every {config.refresh_interval_seconds}s.")
+        if submitted:
+            if not short_description.strip():
+                st.error("Short description is required.")
+            else:
+                try:
+                    urgency_val = urgency.split(" - ")[0]
+                    ticket = sn_client.create_incident(
+                        short_description.strip(),
+                        details.strip(),
+                        category=category,
+                        urgency=urgency_val,
+                    )
+                    ticket_label = ticket.get("number") or ticket.get("sys_id", "(unknown)")
+                    st.success(f"✅ Ticket **{ticket_label}** created. Automation triggered!")
+                    _launch_agent_thread(agent, ticket)
+                except RuntimeError as exc:
+                    st.error(f"Failed to create incident: {exc}")
+
+    # ─── Live Tickets Table ───────────────────────────────
+    with right_col:
+        st.markdown('<div class="section-header">📋 Live Tickets</div>', unsafe_allow_html=True)
+
+        if not tickets_list:
+            st.info("No tickets found. Create one to get started!")
+        else:
+            # Build HTML table
+            rows_html = ""
+            for ticket in tickets_list:
+                number = ticket.get("number") or ticket.get("sys_id", "—")
+                short_desc = ticket.get("short_description", "—")
+                cat = ticket.get("category", "—")
+                impact = ticket.get("impact", "3")
+                urg = ticket.get("urgency", "3")
+                state = ticket.get("state", "1")
+                ai_done = ticket.get("ai_done", False)
+                updated = ticket.get("sys_updated_on") or ticket.get("updated_on", "—")
+
+                rows_html += f"""
+                <tr>
+                    <td><strong>{number}</strong></td>
+                    <td>{short_desc}</td>
+                    <td>{cat}</td>
+                    <td><span class="{_priority_class(impact)}">{impact}</span></td>
+                    <td><span class="{_priority_class(urg)}">{urg}</span></td>
+                    <td>{_state_badge(state)}</td>
+                    <td>{_ai_badge(ai_done)}</td>
+                    <td style="font-size:11px;color:#64748b;">{updated}</td>
+                </tr>
+                """
+
+            table_html = f"""
+            <table class="ticket-table">
+                <thead>
+                    <tr>
+                        <th>Ticket</th>
+                        <th>Description</th>
+                        <th>Category</th>
+                        <th>Impact</th>
+                        <th>Urgency</th>
+                        <th>State</th>
+                        <th>AI Done</th>
+                        <th>Updated</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows_html}
+                </tbody>
+            </table>
+            """
+            st.markdown(table_html, unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔄 Refresh Tickets", use_container_width=True):
+            st.rerun()
 
 
 def _launch_agent_thread(agent: TicketAutomationAgent, ticket: Dict[str, Any]) -> None:
     def _worker() -> None:
         try:
             agent.invoke(ticket)
-        except Exception:  # pragma: no cover - background thread logging
+        except Exception:
             logger.exception("Agent invocation failed for %s", ticket.get("sys_id"))
 
     thread = threading.Thread(target=_worker, name=f"agent-{ticket.get('sys_id', 'ticket')}", daemon=True)
     add_script_run_ctx(thread)
     thread.start()
 
+
+# ─── Utility Functions (unchanged) ───────────────────────────────────────────
 
 def _resolve_llm_settings(settings: Mapping[str, Any]) -> tuple[str, str]:
     provider = _normalise_provider(_get_str(settings, "LLM_PROVIDER", "ollama"))
@@ -320,12 +606,11 @@ def _get_str(settings: Mapping[str, Any], key: str, default: str | None = None) 
 def _require_value(settings: Mapping[str, Any], key: str) -> str:
     value = _get_str(settings, key)
     if not value:
-        raise RuntimeError(f"Configuration value {key} is required for the dashboard.")
+        raise RuntimeError(f"Configuration value {key} is required.")
     return value
 
 
 def _find_config_file() -> Path | None:
-    """Locate config.yml starting from CWD and walking up parents."""
     start = Path.cwd()
     candidates = [start / "config.yml", start / "config.yaml"]
     for candidate in candidates:
@@ -351,12 +636,11 @@ def _extract_env_mapping(data: Any) -> Mapping[str, Any]:
 def _load_settings() -> Dict[str, Any]:
     config_path = _find_config_file()
     if not config_path:
-        logger.debug("No config.yml found; relying on existing environment variables.")
         return {}
     try:
         with open(config_path, "r", encoding="utf-8") as fh:
             data = yaml.safe_load(fh) or {}
-    except Exception as exc:  # pragma: no cover
+    except Exception as exc:
         logger.warning("Unable to read config.yml: %s", exc)
         return {}
     return dict(_extract_env_mapping(data))
