@@ -6,6 +6,7 @@ from typing import Any, Dict, Mapping, Protocol, Sequence
 import ollama
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
+from langchain_groq import ChatGroq
 
 
 class ChatModel(Protocol):
@@ -61,6 +62,18 @@ def _build_google_model(config: Dict[str, Any]) -> Any:
     if max_output_tokens:
         kwargs["max_output_tokens"] = max_output_tokens
     return ChatGoogleGenerativeAI(**kwargs)
+
+
+def _build_groq_model(config: Dict[str, Any]) -> Any:
+    settings = config.copy()
+    model_name = settings.get("model", "llama-3.3-70b-versatile")
+    groq_key = settings.get("api_key") or settings.get("groq_api_key")
+    return ChatGroq(
+        model=model_name,
+        temperature=settings.get("temperature", 0.3),
+        max_tokens=settings.get("max_tokens", 2000),
+        groq_api_key=groq_key,
+    )
 
 
 def _build_ollama_model(config: Dict[str, Any]) -> Any:
@@ -131,6 +144,12 @@ def build_chat_model(config: Dict[str, Any]) -> Any:
             google_settings = {k: v for k, v in google_settings.items() if k != "provider"}
         return _build_google_model(google_settings)
 
+    if provider in {"groq"}:
+        groq_settings = llm_config.get("options", llm_config)
+        if "provider" in groq_settings:
+            groq_settings = {k: v for k, v in groq_settings.items() if k != "provider"}
+        return _build_groq_model(groq_settings)
+
     if provider in {"ollama"}:
         ollama_settings = llm_config.get("options", llm_config)
         if "provider" in ollama_settings:
@@ -164,6 +183,9 @@ def build_llm_client_for_agent(cfg: Any) -> ChatModel:
     elif provider == "gemini":
         opts["model"] = model or getattr(cfg, "gemini_model", None) or "gemini-1.5-flash"
         opts["api_key"] = getattr(cfg, "gemini_api_key", None)
+    elif provider == "groq":
+        opts["model"] = model or getattr(cfg, "groq_model", None) or "llama-3.3-70b-versatile"
+        opts["api_key"] = getattr(cfg, "groq_api_key", None)
     else:  # ollama
         opts["model"] = model or "phi3:latest"
         host = getattr(cfg, "ollama_host", None) or os.getenv("OLLAMA_HOST")

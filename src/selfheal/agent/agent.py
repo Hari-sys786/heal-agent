@@ -38,6 +38,7 @@ class AgentConfig:
     azure_openai_deployment: str | None = None
     openai_api_key: str | None = None
     gemini_api_key: str | None = None
+    groq_api_key: str | None = None
     dry_run_installs: bool = True
     package_manager: str = "apt-get"
     auto_resolve: bool = False

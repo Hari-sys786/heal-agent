@@ -75,6 +75,7 @@ def load_agent_config(settings: Mapping[str, Any]) -> AgentConfig:
         azure_openai_deployment=_get_str(settings, "AZURE_OPENAI_DEPLOYMENT") if llm_provider == "azure_openai" else None,
         openai_api_key=_get_str(settings, "OPENAI_API_KEY"),
         gemini_api_key=_get_str(settings, "GEMINI_API_KEY"),
+        groq_api_key=_get_str(settings, "GROQ_API_KEY"),
         dry_run_installs=_get_bool(settings, "AGENT_DRY_RUN", default=True),
         package_manager=_get_str(settings, "AGENT_PACKAGE_MANAGER", "apt-get"),
         auto_resolve=_get_bool(settings, "AGENT_AUTO_RESOLVE", default=False),
