@@ -114,11 +114,14 @@ def _apply_default_field_overrides(config: ServiceNowConfig, settings: Mapping[s
 
 CUSTOM_CSS = """
 <style>
-    /* Hide Streamlit branding + sidebar */
+    /* Hide Streamlit branding + sidebar + top padding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     section[data-testid="stSidebar"] {display: none !important;}
+    .block-container {padding-top: 1rem !important;}
+    .appview-container section:first-child {padding-top: 0 !important;}
+    div[data-testid="stAppViewBlockContainer"] {padding-top: 1rem !important;}
 
     /* Dark theme overrides */
     .stApp {
