@@ -53,15 +53,14 @@ def _build_google_model(config: Dict[str, Any]) -> Any:
     google_key = settings.get("api_key") or settings.get("google_api_key")
     cred_path = settings.get("credentials_file") or settings.get("google_credentials_file")
 
-    return ChatGoogleGenerativeAI(
-        model=model_name,
-        temperature=temperature,
-        max_output_tokens=max_output_tokens,
-        api_key=google_key,
-        google_api_key=google_key,
-        credentials_file=cred_path,
-        google_credentials_file=cred_path,
-    )
+    kwargs: Dict[str, Any] = {
+        "model": model_name,
+        "temperature": temperature,
+        "google_api_key": google_key,
+    }
+    if max_output_tokens:
+        kwargs["max_output_tokens"] = max_output_tokens
+    return ChatGoogleGenerativeAI(**kwargs)
 
 
 def _build_ollama_model(config: Dict[str, Any]) -> Any:
